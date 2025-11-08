@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>포렌사이언스(슬롯)</title>
+
+  <!-- PWA 연결 -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0b1020">
+
+  <style>
+    :root { --bg:#0b1020; --card:#121832; --acc:#6ee7ff; --txt:#e7f2ff; }
+    *{ box-sizing:border-box; }
+    body{ margin:0; font-family:ui-rounded,system-ui,-apple-system,"Segoe UI",Roboto,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+      background: radial-gradient(1200px 600px at 50% -10%, #1b234a, #0b1020);
+      color:var(--txt); display:flex; align-items:center; justify-content:center; min-height:100vh; }
+    .wrap{ width:min(960px,94vw); display:grid; gap:16px; grid-template-columns:1.2fr 1fr; }
+
+    .machine,.panel{ background:linear-gradient(180deg,#131a36,#0e1530); border:1px solid #2a3568; border-radius:16px; padding:16px;
+      box-shadow:0 10px 30px rgba(0,0,0,.35), inset 0 0 40px rgba(110,231,255,.06); }
+    h1{ margin:0 0 8px; font-size:20px; letter-spacing:.5px; }
+    .reels{ background:#0a0f24; border:2px solid #2e3b78; border-radius:12px; padding:14px; display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:8px; }
+    .col{ background:linear-gradient(180deg,#0d1530,#091024); border:1px solid #33407d; border-radius:10px; padding:10px; height:210px;
+      display:grid; grid-template-rows:repeat(3,1fr); place-items:center; font-size:48px; }
+    .cell{ filter:drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
+    .payline{ height:0; border-top:3px dashed var(--acc); margin:10px 0 0; opacity:.8; }
+    .actions{ display:flex; gap:10px; align-items:center; margin-top:12px; flex-wrap:wrap; }
+    button{ background:linear-gradient(180deg,#22b6ff,#1681ff); color:#001026; border:none; padding:12px 16px; border-radius:12px; font-weight:700; cursor:pointer; box-shadow:0 8px 14px rgba(22,129,255,.28); }
+    button:disabled{ opacity:.5; cursor:not-allowed; }
+    input[type="number"]{ width:84px; padding:10px; border-radius:10px; border:1px solid #2b386d; background:#0b122a; color:var(--txt); }
+    .stats{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
+    .stat{ background:#0c1330; border:1px solid #28346a; padding:12px; border-radius:12px; font-size:14px; }
+    .panel h2{ margin:0 0 12px; font-size:18px; }
+    table{ width:100%; border-collapse:collapse; font-size:14px; }
+    th,td{ padding:8px; text-align:center; border-bottom:1px solid #243064; }
+    .note{ font-size:12px; opacity:.8; margin-top:8px; }
+    .weights{ display:grid; gap:8px; }
+    .row{ display:grid; grid-template-columns:28px 1fr 64px 64px; align-items:center; gap:8px; }
+    .row input[type="range"]{ width:100%; }
+    .ok{ color:#86ff9b; } .warn{ color:#ffd76e; }
+
+    /* 관리자 숨김 토글 */
+    .admin-hidden{display:none!important;}
+    .toast{position:fixed;left:50%;top:16px;transform:translateX(-50%);background:#0c1330;border:1px solid #2b3a7e;color:#e7f2ff;
+      padding:8px 12px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .3s;z-index:9999}
+    .toast.show{opacity:1}
+  </style>
+</head>
+<body>
+  <!-- 관리자 토스트 -->
+  <div id="toast" class="toast"></div>
+
+  <div class="wrap">
+    <section class="machine">
+      <h1>🎰 포렌사이언스(슬롯) — 3×3 / 중앙 1페이라인</h1>
+      <div class="reels" id="reels">
+        <div class="col" id="col0"><div class="cell">🍒</div><div class="cell">🍋</div><div class="cell">🔔</div></div>
+        <div class="col" id="col1"><div class="cell">🍒</div><div class="cell">🍋</div><div class="cell">🔔</div></div>
+        <div class="col" id="col2"><div class="cell">🍒</div><div class="cell">🍋</div><div class="cell">🔔</div></div>
+      </div>
+      <div class="payline"></div>
+      <div class="actions">
+        <label>베팅(포인트) <input type="number" id="bet" min="1" step="1" value="1"></label>
+        <button id="spinBtn">SPIN</button>
+        <div id="result" aria-live="polite"></div>
+      </div>
+      <div class="stats">
+        <div class="stat">예상 히트율: <b id="hitRate">–</b></div>
+        <div class="stat">예상 RTP(장기 환급률): <b id="rtp">–</b></div>
+        <div class="stat">7️⃣ 잭팟 확률(1스핀): <b id="jackpotP">–</b></div>
+        <div class="stat">현재 잔액(연습용): <b id="balance">100</b></div>
+      </div>
+    </section>
+
+    <!-- 관리자 패널: 기본은 숨김 (admin-target) -->
+    <section class="panel admin-target">
+      <h2>심볼 가중치 & 배당 조정</h2>
+      <div id="weights" class="weights"></div>
+      <div class="note">※ 가중치가 높을수록 자주 등장합니다. 배당은 <em>중앙 줄에 같은 심볼 3개</em>일 때만 지급.<br>※ 이 파일 하나만 있으면 오프라인에서도 실행(더블클릭 ▶ 브라우저).</div>
+      <h2 style="margin-top:16px">페이테이블</h2>
+      <table>
+        <thead><tr><th>조합(중앙 3개)</th><th>배당(베팅×)</th></tr></thead>
+        <tbody id="payTable"></tbody>
+      </table>
+      <div class="note">운영 팁: <span class="ok">RTP 60–90%</span> 권장. <span class="warn">히트율</span>을 올리고 배당을 낮추면 “자주 맞는 느낌”이 남.</div>
+    </section>
+  </div>
+
+<script>
+/* ===== 게임 구성 ===== */
+const SYMBOLS = [
+  { char:'🍒', name:'cherry', weight:8, payout:3 },
+  { char:'🍋', name:'lemon',  weight:6, payout:5 },
+  { char:'🔔', name:'bell',   weight:4, payout:10 },
+  { char:'⭐', name:'star',   weight:2, payout:20 },
+  { char:'7️⃣', name:'seven', weight:1, payout:50 },
+];
+const REELS = 3, ROWS = 3;
+let balance = 100;
+
+/* ===== 유틸 ===== */
+function weightedPick(arr){
+  const total = arr.reduce((a,s)=>a+s.weight,0);
+  let r = Math.random()*total;
+  for(const s of arr){ r -= s.weight; if(r<0) return s; }
+  return arr[arr.length-1];
+}
+function spinOnce(){
+  const centers = Array.from({length:REELS}, ()=>weightedPick(SYMBOLS));
+  const view = centers.map(center=>{
+    const up = SYMBOLS[Math.floor(Math.random()*SYMBOLS.length)];
+    const down = SYMBOLS[Math.floor(Math.random()*SYMBOLS.length)];
+    return [up, center, down];
+  });
+  return { view, centers };
+}
+function computeStats(){
+  const totalW = SYMBOLS.reduce((a,s)=>a+s.weight,0);
+  const probs = SYMBOLS.map(s=>({ ...s, p:s.weight/totalW }));
+  const hitRate = probs.reduce((a,s)=>a+Math.pow(s.p,3),0);
+  const rtp = probs.reduce((a,s)=>a+Math.pow(s.p,3)*s.payout,0);
+  const jackpotP = Math.pow(probs.find(s=>s.name==='seven').p,3);
+  return { hitRate, rtp, jackpotP };
+}
+const F = x => (x*100).toFixed(2)+'%';
+
+/* ===== UI ===== */
+const cols=[0,1,2].map(i=>document.getElementById('col'+i));
+const resultEl=document.getElementById('result');
+const hitRateEl=document.getElementById('hitRate');
+const rtpEl=document.getElementById('rtp');
+const jackpotEl=document.getElementById('jackpotP');
+const payTableEl=document.getElementById('payTable');
+const weightsWrap=document.getElementById('weights');
+const spinBtn=document.getElementById('spinBtn');
+const betInput=document.getElementById('bet');
+const balanceEl=document.getElementById('balance');
+
+function renderPayTable(){
+  payTableEl.innerHTML = SYMBOLS.map(s=>`<tr><td>${s.char}${s.char}${s.char}</td><td>×${s.payout}</td></tr>`).join('');
+}
+function renderWeights(){
+  weightsWrap.innerHTML = '';
+  SYMBOLS.forEach((s,idx)=>{
+    const line=document.createElement('div');
+    line.className='row';
+    line.innerHTML=`
+      <div>${s.char}</div>
+      <input type="range" min="1" max="20" value="${s.weight}" data-idx="${idx}">
+      <input type="number" min="1" max="999" value="${s.weight}" data-idx="${idx}" class="wNum">
+      <input type="number" min="1" max="999" value="${s.payout}" data-idx="${idx}" class="pNum">
+    `;
+    weightsWrap.appendChild(line);
+  });
+  // 이벤트
+  weightsWrap.querySelectorAll('input[type="range"]').forEach(r=>{
+    r.addEventListener('input', e=>{
+      const i=+e.target.dataset.idx;
+      SYMBOLS[i].weight=+e.target.value;
+      weightsWrap.querySelectorAll('.wNum')[i].value=SYMBOLS[i].weight;
+      updateStats();
+    });
+  });
+  weightsWrap.querySelectorAll('.wNum').forEach((n,i)=>{
+    n.addEventListener('input', e=>{
+      SYMBOLS[i].weight=Math.max(1,Math.min(999,+e.target.value||1));
+      weightsWrap.querySelectorAll('input[type="range"]')[i].value=SYMBOLS[i].weight;
+      updateStats();
+    });
+  });
+  weightsWrap.querySelectorAll('.pNum').forEach((n,i)=>{
+    n.addEventListener('input', e=>{
+      SYMBOLS[i].payout=Math.max(1,Math.min(999,+e.target.value||1));
+      renderPayTable(); updateStats();
+    });
+  });
+}
+function updateStats(){
+  const {hitRate,rtp,jackpotP} = computeStats();
+  hitRateEl.textContent = `${F(hitRate)} (3개 일치)`;
+  rtpEl.textContent = `${F(rtp)} (배당 기준)`;
+  jackpotEl.textContent = `${F(jackpotP)} (7️⃣×3)`;
+}
+function setView(view){
+  for(let c=0;c<REELS;c++){
+    const col=cols[c];
+    Array.from(col.children).forEach((cell,r)=>cell.textContent=view[c][r].char);
+  }
+}
+function spin(){
+  const bet=Math.max(1,Math.floor(+betInput.value||1));
+  if(balance<bet){ resultEl.textContent='잔액 부족! (연습용)'; return; }
+  balance-=bet; balanceEl.textContent=balance;
+  spinBtn.disabled=true; resultEl.textContent='🎲 스핀 중...';
+
+  const anim=setInterval(()=>{
+    const temp=Array.from({length:REELS},()=>Array.from({length:ROWS},()=>({char:SYMBOLS[Math.floor(Math.random()*SYMBOLS.length)].char})));
+    setView(temp);
+  },60);
+
+  setTimeout(()=>{
+    clearInterval(anim);
+    const {view,centers}=spinOnce();
+    setView(view);
+    let winMult=0;
+    if(centers[0].name===centers[1].name && centers[1].name===centers[2].name){
+      winMult=centers[0].payout;
+    }
+    const win=winMult*bet;
+    balance+=win; balanceEl.textContent=balance;
+    resultEl.textContent = win>0 ? `✅ 당첨! 배당 ×${winMult} → +${win}` : '꽝! 다음 기회에';
+    spinBtn.disabled=false;
+  }, 1200+Math.random()*400);
+}
+
+/* 초기화 */
+renderPayTable(); renderWeights(); updateStats();
+setView([[SYMBOLS[0],SYMBOLS[1],SYMBOLS[2]],[SYMBOLS[0],SYMBOLS[1],SYMBOLS[2]],[SYMBOLS[0],SYMBOLS[1],SYMBOLS[2]]]);
+
+spinBtn.addEventListener('click', spin);
+
+/* ===== 관리자 모드 토글: Ctrl+Shift+A 또는 URL #admin ===== */
+(function(){
+  const adminTargets=document.querySelectorAll('.admin-target');
+  const toast=document.getElementById('toast');
+  function showToast(msg){ if(!toast) return; toast.textContent=msg; toast.classList.add('show'); setTimeout(()=>toast.classList.remove('show'),1200); }
+  function setAdmin(v){
+    adminTargets.forEach(el=>el.classList.toggle('admin-hidden', !v));
+    localStorage.setItem('slot_admin', v?'1':'0');
+    showToast(v?'관리자 모드 ON':'관리자 모드 OFF');
+  }
+  const init=(location.hash.includes('admin') || localStorage.getItem('slot_admin')==='1');
+  setAdmin(init);
+  window.addEventListener('keydown', e=>{
+    if(e.ctrlKey && e.shiftKey && (e.key==='A'||e.key==='a')){
+      e.preventDefault();
+      const hidden=document.querySelector('.admin-target')?.classList.contains('admin-hidden');
+      setAdmin(hidden);
+    }
+  });
+})();
+</script>
+
+<!-- 서비스워커 등록 -->
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js");
+  });
+}
+</script>
+</body>
+</html>
